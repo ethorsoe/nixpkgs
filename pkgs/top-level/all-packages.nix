@@ -13698,6 +13698,9 @@ with pkgs;
 
   cli11 = callPackage ../development/tools/misc/cli11 { };
 
+  crash-python = callPackage ../development/tools/misc/crash-python { };
+  libkdumpfile = callPackage ../development/tools/misc/libkdumpfile { };
+
   dcadec = callPackage ../development/tools/dcadec { };
 
   dejagnu = callPackage ../development/tools/misc/dejagnu { };

@@ -1695,6 +1695,13 @@ in {
 
   cramjam = callPackage ../development/python-modules/cramjam { };
 
+  crash-python = buildPythonPackage {
+    inherit (pkgs.crash-python) name src postPatch doCheck;
+    propagatedBuildInputs = with self; [
+      pyelftools libkdumpfile
+    ];
+  };
+
   crashtest = callPackage ../development/python-modules/crashtest { };
 
   crate = callPackage ../development/python-modules/crate { };
@@ -4101,6 +4108,10 @@ in {
   };
 
   libiio = (toPythonModule (pkgs.libiio.override { inherit python; })).python;
+
+  libkdumpfile = toPythonModule (pkgs.libkdumpfile.override {
+    python3 = python;
+  });
 
   libkeepass = callPackage ../development/python-modules/libkeepass { };
 
