@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, utils, ... }:
 with lib;
 let
   cfg = config.hardware.printers;
@@ -103,28 +103,56 @@ in {
                 {command}`lpoptions [-p printername] -l` shows suported PPD options for the given printer.
               '';
             };
+            udevTrigger = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              example = ''SUBSYSTEM=="usb", ACTION=="add", ATTRS{idVendor}=="04e8", ATTRS{idProduct}=="342e"'';
+              description = lib.mdDoc ''
+                Optional trigger to add the printer, as the default service may fail, if the device is not connected.
+              '';
+            };
           };
         });
       };
     };
   };
 
-  config = mkIf (cfg.ensurePrinters != [] && config.services.printing.enable) {
-    systemd.services.ensure-printers = let
+  config =
+    let
       cupsUnit = if config.services.printing.startWhenNeeded then "cups.socket" else "cups.service";
-    in {
-      description = "Ensure NixOS-configured CUPS printers";
-      wantedBy = [ "multi-user.target" ];
-      requires = [ cupsUnit ];
-      after = [ cupsUnit ];
+      baseService = {
+        description = "Ensure NixOS-configured CUPS printers";
+        requires = [ cupsUnit ];
+        after = [ cupsUnit ];
 
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
       };
-
-      script = concatMapStringsSep "\n" ensurePrinter cfg.ensurePrinters
-        + optionalString (cfg.ensureDefaultPrinter != null) (ensureDefaultPrinter cfg.ensureDefaultPrinter);
-    };
-  };
+      multiUserPrinters = builtins.filter (x: x.udevTrigger == null) cfg.ensurePrinters;
+      triggeredPrinters = builtins.filter (x: x.udevTrigger != null) cfg.ensurePrinters;
+      multiUserDefaultPrinter = builtins.any
+        (x: cfg.ensureDefaultPrinter == x.name)
+        multiUserPrinters;
+      mapTriggeredPrinter = s: {
+        name = "ensure-printer-${utils.systemdUtils.escapeSystemdPath s.name}";
+        value = baseService // {
+          script = ensurePrinter s + "\n" + lib.optionalString
+            (s: cfg.ensureDefaultPrinter == s.name) (ensureDefaultPrinter cfg.ensureDefaultPrinter);
+        };
+      };
+    in
+      mkIf (cfg.ensurePrinters != [] && config.services.printing.enable) {
+        systemd.services. = {
+          ensure-printers = mkIf (multiUserPrinters != [ ]) (baseService // {
+            script = concatMapStringsSep "\n" ensurePrinter multiUserPrinters
+              + optionalString multiUserDefaultPrinter (ensureDefaultPrinter cfg.ensureDefaultPrinter);
+            wantedBy = [ "multi-user.target" ];
+          });
+        } // listToAttrs (map mapTriggeredPrinter triggeredPrinters);
+        services.udev.extraRules = concatMapStringsSep "\n" (s:
+          ''${s.udevTrigger}, TAG+="systemd", ENV{SYSTEMD_WANTS}="ensure-printer-${utils.systemdUtils.escapeSystemdPath s.name}.service"'')
+          triggeredPrinters;
+      };
 }
